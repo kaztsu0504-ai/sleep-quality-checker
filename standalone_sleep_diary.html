@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>SomnoCraft - 睡眠日誌 & 分析ダイアリー</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #020617;
+      color: #f8fafc;
+      font-size: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding-bottom: 40px;
+      min-height: 100vh;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(30, 41, 59, 0.5) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(15, 23, 42, 0.8) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(15, 23, 42, 0.9) 0px, transparent 50%);
+      background-attachment: fixed;
+    }
+    input, select, textarea, button { font-size: 16px !important; }
+    .container { max-width: 800px; margin: 0 auto; padding: 12px; }
+
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+
+    .glass-card {
+      background: rgba(30, 41, 59, 0.5);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 14px;
+    }
+
+    .header-nav { display: flex; flex-direction: column; gap: 12px; }
+    @media (min-width: 640px) {
+      .header-nav { flex-direction: row; align-items: center; justify-content: space-between; }
+    }
+
+    /* ネイティブで100%動くタブ選択プルダウン & ラジオボタン */
+    .nav-select {
+      width: 100%; background: linear-gradient(to right, #4f46e5, #0891b2); color: white; border: none; padding: 12px 16px; border-radius: 14px; font-weight: 900; font-size: 16px; -webkit-appearance: none; appearance: none; text-align: center; cursor: pointer;
+    }
+
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    @media (min-width: 640px) { .grid-4 { grid-template-columns: repeat(4, 1fr); } }
+
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 14px; font-weight: bold; color: #e2e8f0; margin-bottom: 6px; }
+    .form-input {
+      width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 12px; color: #f8fafc; font-size: 16px;
+    }
+
+    /* iOSで100%確実にタップ選択できるネイティブスコア切り替え */
+    .score-select-native {
+      width: 100%; background: #0f172a; border: 2px solid #38bdf8; color: #fbbf24; padding: 14px; border-radius: 14px; font-weight: 900; font-size: 18px; text-align: center;
+    }
+
+    .btn-submit {
+      width: 100%; background: linear-gradient(to right, #4f46e5, #0891b2, #059669); color: white; font-size: 16px; font-weight: 900; padding: 16px; border-radius: 16px; border: none; margin-top: 10px; cursor: pointer;
+    }
+
+    .advice-box { padding: 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; margin-bottom: 10px; }
+    .advice-good { background: rgba(6, 78, 59, 0.6); border: 1px solid #047857; color: #a7f3d0; }
+    .advice-info { background: rgba(12, 74, 110, 0.6); border: 1px solid #0369a1; color: #bae6fd; }
+    .advice-warning { background: rgba(120, 53, 15, 0.6); border: 1px solid #b45309; color: #fde68a; }
+
+    canvas { width: 100% !important; height: 220px !important; display: block; }
+    .modal {
+      position: fixed; inset: 0; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(8px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-content {
+      background: #0f172a; border: 1px solid #334155; border-radius: 20px; padding: 20px; max-width: 600px; width: 100%; max-height: 85vh; overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <!-- Header & Nav (iOS標準コントロール) -->
+    <div class="glass-panel header-nav">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(to top right, #4f46e5, #06b6d4, #fbbf24); padding: 2px;">
+          <div style="width: 100%; height: 100%; background: #020617; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px;">🌙</div>
+        </div>
+        <div>
+          <h1 style="font-size: 20px; font-weight: 900; color: #f8fafc;">SomnoCraft</h1>
+          <p style="font-size: 11px; font-weight: bold; color: #38bdf8;">スリープダイアリー / 睡眠日誌</p>
+        </div>
+      </div>
+
+      <!-- iOSネイティブ切替プルダウン (100%タップ可能) -->
+      <div style="width: 100%; max-width: 320px;">
+        <select id="tab-switcher" class="nav-select">
+          <option value="daily">📝 今日の記録（入力・アドバイス）</option>
+          <option value="dashboard">📊 履歴 & グラフ（データ分析）</option>
+          <option value="columns">📚 睡眠コラム（知識集）</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- VIEW 1: 今日の記録 -->
+    <div id="view-daily">
+      
+      <!-- KPI Summary -->
+      <div class="grid-4" style="margin-bottom: 16px;">
+        <div class="glass-card">
+          <span style="font-size: 11px; font-weight: bold; color: #94a3b8; display: block;">総臥床時間 (TIB)</span>
+          <span id="kpi-tib" style="font-size: 24px; font-weight: 900; color: #f8fafc; display: block; margin-top: 4px;">0時間</span>
+        </div>
+        <div class="glass-card">
+          <span style="font-size: 11px; font-weight: bold; color: #38bdf8; display: block;">実睡眠時間 (TST)</span>
+          <span id="kpi-tst" style="font-size: 24px; font-weight: 900; color: #7dd3fc; display: block; margin-top: 4px;">0時間</span>
+        </div>
+        <div class="glass-card">
+          <span style="font-size: 11px; font-weight: bold; color: #34d399; display: block;">睡眠効率 (SE)</span>
+          <span id="kpi-se" style="font-size: 28px; font-weight: 900; color: #6ee7b7; display: block; margin-top: 4px;">0%</span>
+        </div>
+        <div class="glass-card">
+          <span style="font-size: 11px; font-weight: bold; color: #fbbf24; display: block;">覚醒合計時間</span>
+          <span id="kpi-awake" style="font-size: 28px; font-weight: 900; color: #fde047; display: block; margin-top: 4px;">0分</span>
+        </div>
+      </div>
+
+      <div>
+        <!-- Form -->
+        <form id="daily-form" class="glass-panel">
+          <h2 style="font-size: 16px; font-weight: bold; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #1e293b;">📅 今日の睡眠を記録する</h2>
+
+          <div class="form-group">
+            <label class="form-label">1. 記録対象の日付</label>
+            <input type="date" id="input-date" class="form-input" required />
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label">2. 就寝時刻</label>
+              <input type="time" id="input-bedtime" class="form-input" value="23:30" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">6. 起床時刻</label>
+              <input type="time" id="input-waketime" class="form-input" value="07:00" required />
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between;" class="form-label">
+                <span>3. 入眠 (SOL)</span>
+                <span id="val-sol" style="color: #38bdf8;">15分</span>
+              </div>
+              <input type="range" id="input-sol" min="0" max="120" step="5" value="15" style="width: 100%; accent-color: #38bdf8;" />
+            </div>
+            <div class="form-group">
+              <div style="display: flex; justify-content: space-between;" class="form-label">
+                <span>4. 中途覚醒 (WASO)</span>
+                <span id="val-waso" style="color: #38bdf8;">10分</span>
+              </div>
+              <input type="range" id="input-waso" min="0" max="180" step="5" value="10" style="width: 100%; accent-color: #38bdf8;" />
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label">5. 最終覚醒時刻</label>
+              <input type="time" id="input-final" class="form-input" value="06:45" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">7. 早朝覚醒 (EMA)</label>
+              <input type="number" id="input-ema" class="form-input" value="15" readonly style="color: #94a3b8;" />
+            </div>
+          </div>
+
+          <!-- iOS標準の選択ボックス (100%確実に選べる) -->
+          <div class="form-group">
+            <label class="form-label">8. 熟睡感スコア</label>
+            <select id="select-restfulness" class="score-select-native">
+              <option value="1">1 : 全く眠れなかった 😞</option>
+              <option value="2">2 : あまり眠れなかった 🙁</option>
+              <option value="3">3 : 普通・まあまあ 😐</option>
+              <option value="4" selected>4 : しっかり眠れた 😃</option>
+              <option value="5">5 : ぐっすり眠れた（快眠） 🌟</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">9. 日中の支障度スコア</label>
+            <select id="select-disruption" class="score-select-native" style="border-color: #a855f7; color: #e9d5ff;">
+              <option value="1" selected>1 : 全く支障なし（快適） ⚡️</option>
+              <option value="2">2 : わずかに気になる程度 😌</option>
+              <option value="3">3 : やや眠気やだるさあり 🥱</option>
+              <option value="4">4 : 強い眠気・効率低下あり 😴</option>
+              <option value="5">5 : 非常に強い眠気・倦怠感 😫</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">10. メモ欄 (任意)</label>
+            <textarea id="input-notes" class="form-input" rows="2" placeholder="カフェイン、運動、アルコールなど..."></textarea>
+          </div>
+
+          <button type="submit" id="btn-save" class="btn-submit">睡眠日誌を保存する</button>
+        </form>
+
+        <!-- Advice Box -->
+        <div class="glass-panel">
+          <h3 style="font-size: 16px; font-weight: bold; margin-bottom: 10px;">✨ AIスリープ・アドバイス</h3>
+          <div id="advice-container"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- VIEW 2: 履歴 & グラフ -->
+    <div id="view-dashboard" style="display: none;">
+      
+      <div class="glass-panel">
+        <h2 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">📊 実睡眠時間 (TST) と 総臥床時間 (TIB) の推移</h2>
+        <canvas id="chart1"></canvas>
+      </div>
+
+      <div class="glass-panel">
+        <h2 style="font-size: 16px; font-weight: bold; margin-bottom: 12px;">📈 睡眠効率 (SE %) のトレンド推移（目標 85%）</h2>
+        <canvas id="chart2"></canvas>
+      </div>
+
+      <div class="glass-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 16px; font-weight: bold;">📜 履歴ログ一覧 (<span id="log-count">0</span>件)</h3>
+          <div>
+            <button type="button" id="btn-reset-sample" style="padding: 8px 12px; border-radius: 10px; background: #334155; color: white; border: none; font-size: 12px; font-weight: bold;">サンプル復元</button>
+            <button type="button" id="btn-clear-all" style="padding: 8px 12px; border-radius: 10px; background: #831843; color: #fbcfe8; border: none; font-size: 12px; font-weight: bold; margin-left: 6px;">全消去</button>
+          </div>
+        </div>
+        <div id="log-list-container"></div>
+      </div>
+
+    </div>
+
+    <!-- VIEW 3: 睡眠コラム -->
+    <div id="view-columns" style="display: none;">
+      <!-- コラム選択プルダウン -->
+      <div class="glass-panel" style="margin-bottom: 16px;">
+        <label class="form-label" style="font-size: 16px; color: #38bdf8;">📚 読むコラムを選択してください</label>
+        <select id="select-column-item" class="form-input" style="font-weight: bold; border-color: #38bdf8;">
+          <option value="0">1. 睡眠日誌をつけるメリットと睡眠効率（SE）の見方</option>
+          <option value="1">2. 眠れない時に寝床を出るべき理由（刺激制御法）</option>
+          <option value="2">3. 朝の覚醒と光の浴び方、体内時計のリセット</option>
+          <option value="3">4. アスリート・運動実践者におけるリカバリーと睡眠</option>
+        </select>
+      </div>
+
+      <div id="column-display-area" class="glass-panel" style="line-height: 1.7;">
+        <h2 id="col-display-title" style="font-size: 18px; font-weight: bold; color: #f8fafc; margin-bottom: 10px;"></h2>
+        <div id="col-display-body" style="font-size: 14px; color: #cbd5e1; white-space: pre-wrap;"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // --- STATE & DATA ---
+    var state = {
+      logs: []
+    };
+
+    var INITIAL_LOGS = [
+      { id: '14', date: '2026-09-17', bedtime: '23:15', sol: 15, waso: 10, finalAwakening: '06:45', wakeTime: '07:00', ema: 15, restfulnessScore: 4, daytimeDisruptionScore: 1, notes: 'スマホオフ。目覚ますっきり。', tibMinutes: 465, tstMinutes: 425, sePercent: 91.4 },
+      { id: '13', date: '2026-09-16', bedtime: '23:45', sol: 25, waso: 20, finalAwakening: '06:40', wakeTime: '07:00', ema: 20, restfulnessScore: 3, daytimeDisruptionScore: 2, notes: '仕事の考え目で入眠に時間。', tibMinutes: 435, tstMinutes: 370, sePercent: 85.1 },
+      { id: '12', date: '2026-09-15', bedtime: '00:10', sol: 35, waso: 40, finalAwakening: '06:30', wakeTime: '07:15', ema: 45, restfulnessScore: 2, daytimeDisruptionScore: 4, notes: 'カフェイン摂取。', tibMinutes: 425, tstMinutes: 305, sePercent: 71.8 },
+      { id: '11', date: '2026-09-14', bedtime: '23:00', sol: 10, waso: 10, finalAwakening: '06:20', wakeTime: '06:30', ema: 10, restfulnessScore: 5, daytimeDisruptionScore: 1, notes: 'ジョギング5km。快眠！', tibMinutes: 450, tstMinutes: 420, sePercent: 93.3 },
+      { id: '10', date: '2026-09-13', bedtime: '23:30', sol: 20, waso: 15, finalAwakening: '06:45', wakeTime: '07:00', ema: 15, restfulnessScore: 4, daytimeDisruptionScore: 2, notes: 'リラックス。', tibMinutes: 450, tstMinutes: 405, sePercent: 90.0 }
+    ];
+
+    var COLUMNS = [
+      { title: '1. 睡眠日誌をつけるメリットと睡眠効率（SE）の見方', body: '睡眠効率 (SE) % = (実睡眠時間 TST / 総臥床時間 TIB) × 100\n\n85%以上が良好な状態の目安です。寝床にいる時間と実睡眠時間のギャップを把握することが不眠改善の第一歩です。' },
+      { title: '2. 眠れない時に寝床を出るべき理由（刺激制御法）', body: '寝床に入って20分以上眠れない時は一旦寝床を出て、薄暗いリビングで静かに過ごし、眠気が来たら戻る「刺激制御法」が極めて有効です。' },
+      { title: '3. 朝の覚醒と光の浴び方、体内時計のリセット', body: '起床後すぐにカーテンを開け15〜30分日光を浴びることで、約15時間後に自然な睡眠ホルモン（メラトニン）が分泌されます。' },
+      { title: '4. アスリート・運動実践者におけるリカバリーと睡眠', body: '最初の90分の深い睡眠（N3）で成長ホルモンが分泌され、組織修復と疲労回復が行われます。' }
+    ];
+
+    function timeToMins(t) {
+      if (!t || t.indexOf(':') === -1) return 0;
+      var parts = t.split(':');
+      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+    function calcTIB(b, w) {
+      var s = timeToMins(b), e = timeToMins(w);
+      return e >= s ? e - s : 1440 - s + e;
+    }
+    function calcEMA(f, w) {
+      var fm = timeToMins(f), wm = timeToMins(w);
+      return wm >= fm ? wm - fm : 1440 - fm + wm;
+    }
+    function formatHM(m) {
+      if (m <= 0) return '0分';
+      var h = Math.floor(m / 60), mins = m % 60;
+      return h === 0 ? mins + '分' : mins === 0 ? h + '時間' : h + '時間' + mins + '分';
+    }
+
+    // --- DOM BINDING ---
+    document.addEventListener('DOMContentLoaded', function() {
+      try {
+        var saved = localStorage.getItem('somnocraft_v6_logs');
+        state.logs = saved ? JSON.parse(saved) : INITIAL_LOGS;
+      } catch(e) { state.logs = INITIAL_LOGS; }
+
+      var dateEl = document.getElementById('input-date');
+      if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
+
+      // Tab Switcher (ネイティブselectで100%確実に動く)
+      var tabSelect = document.getElementById('tab-switcher');
+      if (tabSelect) {
+        tabSelect.addEventListener('change', function() {
+          switchTab(tabSelect.value);
+        });
+      }
+
+      // Column Switcher
+      var colSelect = document.getElementById('select-column-item');
+      if (colSelect) {
+        colSelect.addEventListener('change', function() {
+          renderSelectedColumn(parseInt(colSelect.value, 10));
+        });
+      }
+
+      // Inputs change
+      ['input-bedtime', 'input-waketime', 'input-sol', 'input-waso', 'input-final'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('input', recalc);
+          el.addEventListener('change', recalc);
+        }
+      });
+
+      // Form submit
+      var form = document.getElementById('daily-form');
+      if (form) form.addEventListener('submit', handleFormSubmit);
+
+      var btnReset = document.getElementById('btn-reset-sample');
+      if (btnReset) btnReset.addEventListener('click', resetSample);
+
+      var btnClear = document.getElementById('btn-clear-all');
+      if (btnClear) btnClear.addEventListener('click', clearAllLogs);
+
+      recalc();
+      renderLogs();
+      renderSelectedColumn(0);
+    });
+
+    function switchTab(t) {
+      ['daily', 'dashboard', 'columns'].forEach(function(id) {
+        var view = document.getElementById('view-' + id);
+        if (view) view.style.display = (id === t ? 'block' : 'none');
+      });
+      if (t === 'dashboard') renderCharts();
+    }
+
+    function recalc() {
+      var bedtime = document.getElementById('input-bedtime').value;
+      var wakeTime = document.getElementById('input-waketime').value;
+      var finalAwake = document.getElementById('input-final').value;
+      var sol = parseInt(document.getElementById('input-sol').value, 10) || 0;
+      var waso = parseInt(document.getElementById('input-waso').value, 10) || 0;
+
+      document.getElementById('val-sol').innerText = sol + '分';
+      document.getElementById('val-waso').innerText = waso + '分';
+
+      var tib = calcTIB(bedtime, wakeTime);
+      var ema = calcEMA(finalAwake, wakeTime);
+      document.getElementById('input-ema').value = ema;
+
+      var awakeTotal = sol + waso + ema;
+      var tst = Math.max(0, tib - awakeTotal);
+      var se = tib > 0 ? Math.round((tst / tib) * 1000) / 10 : 0;
+
+      document.getElementById('kpi-tib').innerText = formatHM(tib);
+      document.getElementById('kpi-tst').innerText = formatHM(tst);
+      document.getElementById('kpi-se').innerText = se + '%';
+      document.getElementById('kpi-awake').innerText = awakeTotal + '分';
+
+      renderAdvice(se, sol, waso);
+    }
+
+    function renderAdvice(se, sol, waso) {
+      var html = '';
+      var sum = (se >= 85) ? '理想的な質の高い睡眠です。素晴らしいコンディションです！' : '睡眠の効率または入眠の調整でさらに質を高められます。';
+      html += '<div class="advice-box advice-info">💡 <strong>' + sum + '</strong></div>';
+
+      if (se >= 85) {
+        html += '<div class="advice-box advice-good">✅ <strong>良好な睡眠効率 (' + se + '%)</strong><br>寝床の時間と実際の睡眠が一致しています。</div>';
+      } else if (se >= 80) {
+        html += '<div class="advice-box advice-info">ℹ️ <strong>標準的な睡眠効率 (' + se + '%)</strong><br>日中の眠気がないか確認しましょう。</div>';
+      } else {
+        html += '<div class="advice-box advice-warning">⚠️ <strong>睡眠効率の低下 (' + se + '%)</strong><br>寝床の時間に対して実睡眠が短めです。眠気を感じてから寝床に入りましょう。</div>';
+      }
+
+      if (sol >= 30) {
+        html += '<div class="advice-box advice-warning">⚠️ <strong>入眠時間が長め (' + sol + '分)</strong><br>就寝前のスマホ画面カットや温浴を取り入れましょう。</div>';
+      }
+      if (waso >= 30) {
+        html += '<div class="advice-box advice-warning">⚠️ <strong>中途覚醒が目立ちます (' + waso + '分)</strong><br>室温・湿度、寝具環境やカフェイン摂取量を見直しましょう。</div>';
+      }
+
+      document.getElementById('advice-container').innerHTML = html;
+    }
+
+    function handleFormSubmit(e) {
+      e.preventDefault();
+      var date = document.getElementById('input-date').value;
+      var bedtime = document.getElementById('input-bedtime').value;
+      var wakeTime = document.getElementById('input-waketime').value;
+      var finalAwake = document.getElementById('input-final').value;
+      var sol = parseInt(document.getElementById('input-sol').value, 10) || 0;
+      var waso = parseInt(document.getElementById('input-waso').value, 10) || 0;
+      var ema = parseInt(document.getElementById('input-ema').value, 10) || 0;
+      var restfulness = parseInt(document.getElementById('select-restfulness').value, 10) || 4;
+      var disruption = parseInt(document.getElementById('select-disruption').value, 10) || 1;
+      var notes = document.getElementById('input-notes').value;
+
+      var tib = calcTIB(bedtime, wakeTime);
+      var tst = Math.max(0, tib - (sol + waso + ema));
+      var se = tib > 0 ? Math.round((tst / tib) * 1000) / 10 : 0;
+
+      var newLog = {
+        id: Date.now().toString(),
+        date: date, bedtime: bedtime, sol: sol, waso: waso, finalAwakening: finalAwake, wakeTime: wakeTime, ema: ema,
+        restfulnessScore: restfulness, daytimeDisruptionScore: disruption, notes: notes,
+        tibMinutes: tib, tstMinutes: tst, sePercent: se
+      };
+
+      state.logs = [newLog].concat(state.logs.filter(function(l) { return l.date !== date; }));
+      state.logs.sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
+      localStorage.setItem('somnocraft_v6_logs', JSON.stringify(state.logs));
+      alert('睡眠日誌を保存しました！');
+      renderLogs();
+    }
+
+    function deleteLog(id) {
+      if (confirm('この記録を削除しますか？')) {
+        state.logs = state.logs.filter(function(l) { return l.id !== id; });
+        localStorage.setItem('somnocraft_v6_logs', JSON.stringify(state.logs));
+        renderLogs();
+        if (document.getElementById('view-dashboard').style.display !== 'none') renderCharts();
+      }
+    }
+
+    function clearAllLogs() {
+      if (confirm('すべての履歴ログを消去しますか？')) {
+        state.logs = [];
+        localStorage.setItem('somnocraft_v6_logs', JSON.stringify([]));
+        renderLogs();
+        if (document.getElementById('view-dashboard').style.display !== 'none') renderCharts();
+      }
+    }
+
+    function resetSample() {
+      if (confirm('サンプルデータ（5件）に復元しますか？')) {
+        state.logs = INITIAL_LOGS;
+        localStorage.setItem('somnocraft_v6_logs', JSON.stringify(INITIAL_LOGS));
+        renderLogs();
+        if (document.getElementById('view-dashboard').style.display !== 'none') renderCharts();
+      }
+    }
+
+    function renderLogs() {
+      document.getElementById('log-count').innerText = state.logs.length;
+      var el = document.getElementById('log-list-container');
+      if (state.logs.length === 0) {
+        el.innerHTML = '<p style="text-align:center; padding:20px; color:#94a3b8; font-size:13px;">ログはありません。</p>';
+        return;
+      }
+      var html = '';
+      state.logs.forEach(function(l) {
+        html += '<div class="glass-card" style="margin-bottom: 10px;">' +
+            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+              '<span style="font-weight:900; font-size:15px; color:#f8fafc;">' + l.date + ' (' + l.bedtime + '〜' + l.wakeTime + ')</span>' +
+              '<div style="display:flex; align-items:center; gap:6px;">' +
+                '<span style="padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; background: #064e3b; color: #6ee7b7; border: 1px solid #047857;">SE ' + l.sePercent + '%</span>' +
+                '<button type="button" onclick="deleteLog(\'' + l.id + '\')" style="padding: 6px 12px; border-radius: 8px; background: #831843; color: #fbcfe8; border: none; font-size: 12px; font-weight: bold;">削除</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="font-size: 12px; color: #cbd5e1; margin-top: 6px;">' +
+              '実睡眠: <strong style="color:#7dd3fc;">' + formatHM(l.tstMinutes) + '</strong> | 熟睡感: <strong style="color:#fbbf24;">' + l.restfulnessScore + '/5</strong>' +
+            '</div>' +
+            (l.notes ? '<div style="font-size: 11px; color: #94a3b8; background: #020617; padding: 6px 10px; border-radius: 8px; margin-top: 6px;">📝 ' + l.notes + '</div>' : '') +
+          '</div>';
+      });
+      el.innerHTML = html;
+    }
+
+    function renderCharts() {
+      var logs = state.logs.slice().reverse().slice(-14);
+      var labels = logs.map(function(l) { return l.date.slice(5).replace('-', '/'); });
+
+      // Chart 1
+      var cvs1 = document.getElementById('chart1');
+      if (cvs1) {
+        var ctx = cvs1.getContext('2d');
+        var W = cvs1.clientWidth || 340, H = 220;
+        cvs1.width = W; cvs1.height = H;
+        ctx.clearRect(0, 0, W, H);
+
+        if (logs.length > 0) {
+          var maxVal = 10;
+          var padL = 35, padB = 25, padT = 15, padR = 15;
+          var chartW = W - padL - padR, chartH = H - padB - padT;
+
+          ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
+          for (var i = 0; i <= 4; i++) {
+            var y = padT + (chartH / 4) * i;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            var val = Math.round(maxVal - (maxVal / 4) * i);
+            ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif';
+            ctx.fillText(val + 'h', 8, y + 4);
+          }
+
+          var step = chartW / logs.length;
+          logs.forEach(function(l, idx) {
+            var x = padL + step * idx + step / 2;
+            var tibH = (l.tibMinutes / 60 / maxVal) * chartH;
+            var tstH = (l.tstMinutes / 60 / maxVal) * chartH;
+
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(x - 8, H - padB - tibH, 16, tibH);
+
+            ctx.fillStyle = '#0284c7';
+            ctx.fillRect(x - 5, H - padB - tstH, 10, tstH);
+
+            ctx.fillStyle = '#cbd5e1'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText(labels[idx], x, H - 6);
+          });
+        }
+      }
+
+      // Chart 2
+      var cvs2 = document.getElementById('chart2');
+      if (cvs2) {
+        var ctx2 = cvs2.getContext('2d');
+        var W2 = cvs2.clientWidth || 340, H2 = 220;
+        cvs2.width = W2; cvs2.height = H2;
+        ctx2.clearRect(0, 0, W2, H2);
+
+        if (logs.length > 0) {
+          var padL2 = 35, padB2 = 25, padT2 = 15, padR2 = 15;
+          var chartW2 = W2 - padL2 - padR2, chartH2 = H2 - padB2 - padT2;
+
+          var targetY = H2 - padB2 - ((85 - 40) / 60) * chartH2;
+          ctx2.strokeStyle = '#34d399'; ctx2.lineWidth = 1.5;
+          ctx2.beginPath(); ctx2.moveTo(padL2, targetY); ctx2.lineTo(W2 - padR2, targetY); ctx2.stroke();
+          ctx2.fillStyle = '#34d399'; ctx2.font = 'bold 10px sans-serif';
+          ctx2.fillText('目標85%', padL2 + 5, targetY - 4);
+
+          var step2 = chartW2 / logs.length;
+          ctx2.strokeStyle = '#10b981'; ctx2.lineWidth = 3;
+          ctx2.beginPath();
+          logs.forEach(function(l, idx) {
+            var x = padL2 + step2 * idx + step2 / 2;
+            var y = H2 - padB2 - ((l.sePercent - 40) / 60) * chartH2;
+            if (idx === 0) ctx2.moveTo(x, y); else ctx2.lineTo(x, y);
+          });
+          ctx2.stroke();
+
+          logs.forEach(function(l, idx) {
+            var x = padL2 + step2 * idx + step2 / 2;
+            var y = H2 - padB2 - ((l.sePercent - 40) / 60) * chartH2;
+            ctx2.fillStyle = '#10b981';
+            ctx2.beginPath(); ctx2.arc(x, y, 4, 0, Math.PI * 2); ctx2.fill();
+
+            ctx2.fillStyle = '#cbd5e1'; ctx2.font = '10px sans-serif'; ctx2.textAlign = 'center';
+            ctx2.fillText(labels[idx], x, H2 - 6);
+          });
+        }
+      }
+    }
+
+    function renderSelectedColumn(idx) {
+      var item = COLUMNS[idx || 0];
+      if (item) {
+        document.getElementById('col-display-title').innerText = item.title;
+        document.getElementById('col-display-body').innerText = item.body;
+      }
+    }
+  </script>
+</body>
+</html>

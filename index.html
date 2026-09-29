@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>SomnoCraft - 睡眠日誌 & 分析ダイアリー</title>
+  
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js & annotation plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+
+  <style>
+    body {
+      background-color: #020617;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(30, 41, 59, 0.5) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(15, 23, 42, 0.8) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(15, 23, 42, 0.9) 0px, transparent 50%);
+      background-attachment: fixed;
+    }
+    input, select, textarea, button {
+      font-size: 16px !important;
+    }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .glass-card {
+      background: rgba(30, 41, 59, 0.5);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+</head>
+<body class="min-h-screen pb-12">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- 計算ロジック ---
+    function timeToMinutes(timeStr) {
+      if (!timeStr || !timeStr.includes(':')) return 0;
+      const [h, m] = timeStr.split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    }
+
+    function calculateTIB(bedtime, wakeTime) {
+      const start = timeToMinutes(bedtime);
+      const end = timeToMinutes(wakeTime);
+      return end >= start ? end - start : 1440 - start + end;
+    }
+
+    function calculateEMA(finalAwakening, wakeTime) {
+      if (!finalAwakening || !wakeTime) return 0;
+      const finalM = timeToMinutes(finalAwakening);
+      const wakeM = timeToMinutes(wakeTime);
+      return wakeM >= finalM ? wakeM - finalM : 1440 - finalM + wakeM;
+    }
+
+    function calculateTST(tibMinutes, sol, waso, ema) {
+      const awakeTotal = (sol || 0) + (waso || 0) + (ema || 0);
+      return Math.max(0, tibMinutes - awakeTotal);
+    }
+
+    function calculateSE(tstMinutes, tibMinutes) {
+      if (tibMinutes <= 0) return 0;
+      return Math.round((tstMinutes / tibMinutes) * 1000) / 10;
+    }
+
+    function formatHM(minutes) {
+      if (minutes <= 0) return '0分';
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      if (h === 0) return `${m}分`;
+      if (m === 0) return `${h}時間`;
+      return `${h}時間${m}分`;
+    }
+
+    function generateAdvice(se, sol, waso, tst, restfulness, disruption) {
+      let seAdv = {
+        title: se >= 85 ? '良好な睡眠効率 (85%+)' : se >= 80 ? '標準的な睡眠効率 (80〜84%)' : '睡眠効率低下 (80%未満)',
+        msg: se >= 85 ? '良好な睡眠効率です。寝床にいる時間と実際の睡眠がしっかり一致しています。このリズムを維持しましょう。' : se >= 80 ? '標準的な範囲です。日中の眠気や疲労感がないか確認しましょう。' : '寝床にいる時間に対して実睡眠時間が短くなっています。眠気を感じてから寝床に入る調整を試しましょう。',
+        level: se >= 85 ? 'good' : se >= 80 ? 'info' : 'warning'
+      };
+
+      let solAdv = sol >= 30 ? {
+        title: '入眠までの時間が長め (30分以上)',
+        msg: '寝付くまでに時間がかかっているようです。就寝前の画面光カットやリラックスルーティンを取り入れましょう。',
+        level: 'warning'
+      } : null;
+
+      let wasoAdv = waso >= 30 ? {
+        title: '中途覚醒が目立ちます (30分以上)',
+        msg: '夜間の覚醒が目立ちます。室温・湿度、寝具環境、就寝前の水分やアルコール摂取量を見直しましょう。',
+        level: 'warning'
+      } : null;
+
+      let summary = (se >= 85 && restfulness >= 4)
+        ? '理想的な質の高い睡眠です。素晴らしいコンディションです！'
+        : (se < 80 || sol >= 30 || waso >= 30)
+        ? '睡眠の効率またはスムーズな入眠に改善の余地があります。下記のアドバイスをご参照ください。'
+        : '概ね安定した睡眠状態です。小さな調整でさらに質を高められます。';
+
+      return { seAdv, solAdv, wasoAdv, summary };
+    }
+
+    // --- 10日間初期デモデータ ---
+    const INITIAL_LOGS = [
+      { id: '14', date: '2026-09-17', bedtime: '23:15', sol: 15, waso: 10, finalAwakening: '06:45', wakeTime: '07:00', ema: 15, restfulnessScore: 4, daytimeDisruptionScore: 1, notes: '22時以降スマホオフ。目覚ますっきり。', tibMinutes: 465, tstMinutes: 425, sePercent: 91.4 },
+      { id: '13', date: '2026-09-16', bedtime: '23:45', sol: 25, waso: 20, finalAwakening: '06:40', wakeTime: '07:00', ema: 20, restfulnessScore: 3, daytimeDisruptionScore: 2, notes: '仕事の考え目で入眠に時間。', tibMinutes: 435, tstMinutes: 370, sePercent: 85.1 },
+      { id: '12', date: '2026-09-15', bedtime: '00:10', sol: 35, waso: 40, finalAwakening: '06:30', wakeTime: '07:15', ema: 45, restfulnessScore: 2, daytimeDisruptionScore: 4, notes: '夕食時カフェイン摂取。', tibMinutes: 425, tstMinutes: 305, sePercent: 71.8 },
+      { id: '11', date: '2026-09-14', bedtime: '23:00', sol: 10, waso: 10, finalAwakening: '06:20', wakeTime: '06:30', ema: 10, restfulnessScore: 5, daytimeDisruptionScore: 1, notes: '夕方ジョギング5km。熟睡！', tibMinutes: 450, tstMinutes: 420, sePercent: 93.3 },
+      { id: '10', date: '2026-09-13', bedtime: '23:30', sol: 20, waso: 15, finalAwakening: '06:45', wakeTime: '07:00', ema: 15, restfulnessScore: 4, daytimeDisruptionScore: 2, notes: '休日前の夜。リラックス。', tibMinutes: 450, tstMinutes: 405, sePercent: 90.0 }
+    ];
+
+    const COLUMNS = [
+      { title: '睡眠日誌をつけるメリットと睡眠効率（SE）の見方', cat: '基礎知識', time: 3, summary: '寝床にいる時間と実際の睡眠時間の比率（SE）を知ることで、不眠改善の鍵が見えます。', body: '睡眠効率 (SE) % = (実睡眠時間 TST / 総臥床時間 TIB) × 100\n\n85%以上が良好な状態の目安です。寝床にいる時間と実睡眠時間のギャップを把握することが不眠改善の第一歩です。' },
+      { title: '眠れない時に寝床を出るべき理由（刺激制御法）', cat: '実践法', time: 4, summary: '眠れないまま布団の中でゴロゴロ過ごすと、脳が「寝床＝覚醒・不安の場所」と学習してしまいます。', body: '寝床に入って20分以上眠れない時は一旦寝床を出て、薄暗いリビングで静かに過ごし、眠気が来たら戻る「刺激制御法」が極めて有効です。' },
+      { title: '朝の覚醒と光の浴び方、体内時計のリセット', cat: '生活習慣', time: 3, summary: '毎朝の太陽光を浴びることで体内時計がリセットされ、夜のメラトニン分泌が促進されます。', body: '起床後すぐにカーテンを開け15〜30分日光を浴びることで、約15時間後に自然な睡眠ホルモン（メラトニン）が分泌されます。' },
+      { title: 'アスリート・運動実践者におけるリカバリーと睡眠', cat: 'リカバリー', time: 4, summary: 'ハードなトレーニング後の筋肉修復や成長ホルモン分泌、パフォーマンス向上における睡眠の重要性。', body: '最初の90分の深い睡眠（N3）で成長ホルモンが分泌され、組織修復と疲労回復が行われます。' }
+    ];
+
+    function App() {
+      const [tab, setTab] = useState('daily');
+      const [period, setPeriod] = useState(7);
+      const [logs, setLogs] = useState(() => {
+        try {
+          const saved = localStorage.getItem('somnocraft_standalone_logs_v3');
+          return saved ? JSON.parse(saved) : INITIAL_LOGS;
+        } catch { return INITIAL_LOGS; }
+      });
+
+      const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+      const [bedtime, setBedtime] = useState('23:30');
+      const [sol, setSol] = useState(15);
+      const [waso, setWaso] = useState(10);
+      const [finalAwakening, setFinalAwakening] = useState('06:45');
+      const [wakeTime, setWakeTime] = useState('07:00');
+      const [restfulness, setRestfulness] = useState(4);
+      const [disruption, setDisruption] = useState(1);
+      const [notes, setNotes] = useState('');
+      const [activeCol, setActiveCol] = useState(null);
+
+      const chartRef1 = useRef(null);
+      const chartRef2 = useRef(null);
+      const chartRef3 = useRef(null);
+
+      const chartInstance1 = useRef(null);
+      const chartInstance2 = useRef(null);
+      const chartInstance3 = useRef(null);
+
+      useEffect(() => {
+        localStorage.setItem('somnocraft_standalone_logs_v3', JSON.stringify(logs));
+      }, [logs]);
+
+      const tib = calculateTIB(bedtime, wakeTime);
+      const ema = calculateEMA(finalAwakening, wakeTime);
+      const tst = calculateTST(tib, sol, waso, ema);
+      const se = calculateSE(tst, tib);
+      const advice = generateAdvice(se, sol, waso, tst, restfulness, disruption);
+
+      const handleSave = (e) => {
+        e.preventDefault();
+        const newLog = {
+          id: Date.now().toString(),
+          date, bedtime, sol, waso, finalAwakening, wakeTime, ema,
+          restfulnessScore: restfulness, daytimeDisruptionScore: disruption, notes,
+          tibMinutes: tib, tstMinutes: tst, sePercent: se
+        };
+        const updated = [newLog, ...logs.filter(l => l.date !== date)];
+        updated.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setLogs(updated);
+        alert('睡眠日誌を保存しました！');
+      };
+
+      // ログ個別の削除機能
+      const handleDeleteLog = (id) => {
+        if (confirm('この日付の記録を削除しますか？')) {
+          const filtered = logs.filter(l => l.id !== id);
+          setLogs(filtered);
+        }
+      };
+
+      // サンプルログ全消去機能
+      const handleClearAllLogs = () => {
+        if (confirm('すべての履歴ログを消去して、新規に記録を開始しますか？')) {
+          setLogs([]);
+        }
+      };
+
+      // サンプルデータ再リセット
+      const handleResetSample = () => {
+        if (confirm('初期サンプルデータにリセットしますか？')) {
+          setLogs(INITIAL_LOGS);
+        }
+      };
+
+      // --- Chart.js レンダリング ---
+      useEffect(() => {
+        if (tab === 'dashboard') {
+          const displayLogs = period > 0 ? logs.slice(0, period) : logs;
+          const reversed = [...displayLogs].reverse();
+          const labels = reversed.map(l => l.date.slice(5).replace('-', '/'));
+
+          // グラフ 1: TST vs TIB
+          if (chartRef1.current) {
+            if (chartInstance1.current) chartInstance1.current.destroy();
+            const ctx1 = chartRef1.current.getContext('2d');
+            
+            const gradient = ctx1.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(56, 189, 248, 0.45)');
+            gradient.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
+
+            chartInstance1.current = new Chart(ctx1, {
+              type: 'bar',
+              data: {
+                labels,
+                datasets: [
+                  {
+                    type: 'line',
+                    label: '実睡眠時間 (TST)',
+                    data: reversed.map(l => Math.round((l.tstMinutes/60)*10)/10),
+                    borderColor: '#38bdf8',
+                    borderWidth: 3,
+                    fill: true,
+                    backgroundColor: gradient,
+                    tension: 0.3,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#38bdf8'
+                  },
+                  {
+                    type: 'bar',
+                    label: '総臥床時間 (TIB)',
+                    data: reversed.map(l => Math.round((l.tibMinutes/60)*10)/10),
+                    backgroundColor: '#1e293b',
+                    borderColor: '#475569',
+                    borderWidth: 1,
+                    borderRadius: 6,
+                    barPercentage: 0.5
+                  }
+                ]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: { grid: { color: '#334155' }, ticks: { color: '#cbd5e1', font: { size: 12 } }, title: { display: true, text: '時間 (h)', color: '#94a3b8' } },
+                  x: { grid: { display: false }, ticks: { color: '#cbd5e1', font: { size: 12 } } }
+                },
+                plugins: {
+                  legend: { labels: { color: '#f8fafc', font: { size: 12, weight: 'bold' } } }
+                }
+              }
+            });
+          }
+
+          // グラフ 2: 睡眠効率 SE % (85%目標線つき)
+          if (chartRef2.current) {
+            if (chartInstance2.current) chartInstance2.current.destroy();
+            const ctx2 = chartRef2.current.getContext('2d');
+            chartInstance2.current = new Chart(ctx2, {
+              type: 'line',
+              data: {
+                labels,
+                datasets: [
+                  {
+                    label: '睡眠効率 (SE %)',
+                    data: reversed.map(l => l.sePercent),
+                    borderColor: '#10b981',
+                    borderWidth: 3.5,
+                    tension: 0.2,
+                    pointRadius: 5,
+                    pointBackgroundColor: '#10b981',
+                    pointHoverRadius: 7
+                  }
+                ]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: { min: 50, max: 100, grid: { color: '#334155' }, ticks: { color: '#10b981', font: { size: 12, weight: 'bold' } }, title: { display: true, text: '効率 (%)', color: '#10b981' } },
+                  x: { grid: { display: false }, ticks: { color: '#cbd5e1', font: { size: 12 } } }
+                },
+                plugins: {
+                  legend: { labels: { color: '#10b981', font: { size: 12, weight: 'bold' } } },
+                  annotation: {
+                    annotations: {
+                      line1: {
+                        type: 'line',
+                        yMin: 85,
+                        yMax: 85,
+                        borderColor: '#34d399',
+                        borderWidth: 2,
+                        borderDash: [6, 6],
+                        label: { display: true, content: '目標 85%', color: '#34d399', position: 'start', font: { size: 11, weight: 'bold' } }
+                      }
+                    }
+                  }
+                }
+              }
+            });
+          }
+
+          // グラフ 3: 寝床時間の構成ブレイクダウン
+          if (chartRef3.current) {
+            if (chartInstance3.current) chartInstance3.current.destroy();
+            const ctx3 = chartRef3.current.getContext('2d');
+            chartInstance3.current = new Chart(ctx3, {
+              type: 'bar',
+              data: {
+                labels,
+                datasets: [
+                  { label: '実睡眠 (TST)', data: reversed.map(l => l.tstMinutes), backgroundColor: '#0284c7' },
+                  { label: '入眠 (SOL)', data: reversed.map(l => l.sol), backgroundColor: '#f59e0b' },
+                  { label: '中途覚醒 (WASO)', data: reversed.map(l => l.waso), backgroundColor: '#ef4444' },
+                  { label: '早朝覚醒 (EMA)', data: reversed.map(l => l.ema), backgroundColor: '#8b5cf6' }
+                ]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  x: { stacked: true, grid: { display: false }, ticks: { color: '#cbd5e1', font: { size: 12 } } },
+                  y: { stacked: true, grid: { color: '#334155' }, ticks: { color: '#cbd5e1', font: { size: 12 } }, title: { display: true, text: '分', color: '#94a3b8' } }
+                },
+                plugins: { legend: { labels: { color: '#f8fafc', font: { size: 11 } } } }
+              }
+            });
+          }
+        }
+      }, [tab, period, logs]);
+
+      const periodLogs = period > 0 ? logs.slice(0, period) : logs;
+      const count = periodLogs.length || 1;
+      const avgTST = Math.round(periodLogs.reduce((a,c)=>a+c.tstMinutes,0) / count);
+      const avgSE = Math.round((periodLogs.reduce((a,c)=>a+c.sePercent,0) / count)*10)/10;
+      const avgSOL = Math.round(periodLogs.reduce((a,c)=>a+c.sol,0) / count);
+      const avgRest = Math.round((periodLogs.reduce((a,c)=>a+c.restfulnessScore,0) / count)*10)/10;
+
+      return (
+        <div className="max-w-4xl mx-auto px-3 sm:px-6 py-4 space-y-6">
+          
+          {/* Header */}
+          <header className="glass-panel p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center space-x-3 w-full sm:w-auto">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 via-cyan-500 to-amber-400 p-[2px] shadow-lg">
+                <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center font-bold text-amber-300 text-lg">🌙</div>
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-100">SomnoCraft</h1>
+                <p className="text-xs text-cyan-400 font-bold">スリープダイアリー / 睡眠日誌</p>
+              </div>
+            </div>
+
+            <nav className="flex space-x-1 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 w-full sm:w-auto">
+              <button onClick={() => setTab('daily')} className={`flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${tab==='daily'?'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md':'text-slate-300'}`}>今日の記録</button>
+              <button onClick={() => setTab('dashboard')} className={`flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${tab==='dashboard'?'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md':'text-slate-300'}`}>履歴 & グラフ</button>
+              <button onClick={() => setTab('columns')} className={`flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${tab==='columns'?'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md':'text-slate-300'}`}>睡眠コラム</button>
+            </nav>
+          </header>
+
+          {/* タブ 1: 今日の記録 */}
+          {tab === 'daily' && (
+            <div className="space-y-6">
+              
+              {/* 数値サマリー */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="glass-card p-4 rounded-2xl border border-slate-800">
+                  <span className="text-xs font-bold text-slate-300 uppercase block">総臥床時間 (TIB)</span>
+                  <span className="text-2xl sm:text-3xl font-black text-slate-100 block mt-1">{formatHM(tib)}</span>
+                  <span className="text-[11px] text-slate-400 mt-1 block">寝床にいた合計 ({tib}分)</span>
+                </div>
+                <div className="glass-card p-4 rounded-2xl border border-slate-800">
+                  <span className="text-xs font-bold text-cyan-400 uppercase block">実睡眠時間 (TST)</span>
+                  <span className="text-2xl sm:text-3xl font-black text-cyan-300 block mt-1">{formatHM(tst)}</span>
+                  <span className="text-[11px] text-cyan-200 mt-1 block">実際に眠れた時間 ({tst}分)</span>
+                </div>
+                <div className="glass-card p-4 rounded-2xl border border-slate-800">
+                  <span className="text-xs font-bold text-emerald-400 uppercase block">睡眠効率 (SE)</span>
+                  <span className="text-3xl sm:text-4xl font-black text-emerald-300 block mt-1">{se}%</span>
+                  <span className="text-[11px] text-slate-300 mt-1 block">目標: 85%以上</span>
+                </div>
+                <div className="glass-card p-4 rounded-2xl border border-slate-800">
+                  <span className="text-xs font-bold text-amber-400 uppercase block">覚醒合計時間</span>
+                  <span className="text-3xl sm:text-4xl font-black text-amber-300 block mt-1">{sol+waso+ema}分</span>
+                  <span className="text-[11px] text-slate-300 mt-1 block">入眠{sol}m / 中途{waso}m</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                {/* フォーム */}
+                <form onSubmit={handleSave} className="md:col-span-7 glass-panel p-5 sm:p-6 rounded-2xl space-y-5 border border-slate-800">
+                  <h2 className="text-base sm:text-lg font-bold text-slate-100 border-b border-slate-800 pb-3 flex items-center space-x-2">
+                    <span>📅 今日の睡眠を記録する</span>
+                  </h2>
+                  
+                  <div>
+                    <label className="block text-sm font-bold text-slate-200 mb-1">1. 記録対象の日付</label>
+                    <input type="date" value={date} onChange={e=>setDate(e.target.value)} required className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3.5 text-base text-slate-100" />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-200 mb-1">2. 就寝時刻 (寝床に入った時間)</label>
+                      <input type="time" value={bedtime} onChange={e=>setBedtime(e.target.value)} required className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3.5 text-base text-slate-100" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-200 mb-1">6. 起床時刻 (布団を出た時間)</label>
+                      <input type="time" value={wakeTime} onChange={e=>setWakeTime(e.target.value)} required className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3.5 text-base text-slate-100" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex justify-between text-sm font-bold mb-1">
+                        <span>3. 入眠 (SOL)</span>
+                        <span className="text-cyan-400 font-extrabold">{sol}分</span>
+                      </div>
+                      <input type="range" min="0" max="120" step="5" value={sol} onChange={e=>setSol(Number(e.target.value))} className="w-full accent-cyan-500 h-3 rounded-lg" />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-sm font-bold mb-1">
+                        <span>4. 中途覚醒 (WASO)</span>
+                        <span className="text-cyan-400 font-extrabold">{waso}分</span>
+                      </div>
+                      <input type="range" min="0" max="180" step="5" value={waso} onChange={e=>setWaso(Number(e.target.value))} className="w-full accent-cyan-500 h-3 rounded-lg" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-200 mb-1">5. 最終覚醒時刻</label>
+                      <input type="time" value={finalAwakening} onChange={e=>setFinalAwakening(e.target.value)} required className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3.5 text-base text-slate-100" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-200 mb-1">7. 早朝覚醒 (EMA)</label>
+                      <input type="number" value={ema} readOnly className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-base text-slate-400" />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-800">
+                    <label className="block text-sm font-bold text-slate-200 mb-2">8. 熟睡感スコア (1:全くなし 〜 5:ぐっすり)</label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {[1,2,3,4,5].map(n => (
+                        <button key={n} type="button" onClick={()=>setRestfulness(n)} className={`py-3 rounded-xl border font-black text-base transition-all ${restfulness===n?'bg-slate-800 border-cyan-400 text-amber-300 ring-2 ring-cyan-500/50 scale-[1.02]':'bg-slate-900 border-slate-800 text-slate-400'}`}>{n}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-slate-200 mb-2">9. 日中の支障度スコア (1:支障なし 〜 5:強い眠気)</label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {[1,2,3,4,5].map(n => (
+                        <button key={n} type="button" onClick={()=>setDisruption(n)} className={`py-3 rounded-xl border font-black text-base transition-all ${disruption===n?'bg-slate-800 border-cyan-400 text-cyan-300 ring-2 ring-cyan-500/50 scale-[1.02]':'bg-slate-900 border-slate-800 text-slate-400'}`}>{n}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-slate-200 mb-1">10. メモ欄</label>
+                    <textarea rows="3" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="カフェイン、運動、アルコールなど..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3.5 text-sm text-slate-100" />
+                  </div>
+
+                  <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 via-cyan-600 to-emerald-600 text-white font-black py-4 rounded-2xl text-base shadow-xl active:scale-98">
+                    睡眠日誌を保存する
+                  </button>
+                </form>
+
+                {/* AIアドバイス */}
+                <div className="md:col-span-5 space-y-4">
+                  <div className="glass-card p-5 rounded-2xl space-y-4 border border-slate-800">
+                    <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
+                      <span>✨ AIスリープ・アドバイス</span>
+                    </h3>
+                    <div className="p-4 bg-slate-900 rounded-xl border border-slate-700 text-xs sm:text-sm font-semibold text-slate-100 leading-relaxed">
+                      💡 {advice.summary}
+                    </div>
+
+                    <div className={`p-4 rounded-xl border text-xs sm:text-sm space-y-1 ${advice.seAdv.level==='good'?'bg-emerald-950/60 border-emerald-700 text-emerald-200':advice.seAdv.level==='info'?'bg-cyan-950/60 border-cyan-700 text-cyan-200':'bg-amber-950/60 border-amber-700 text-amber-200'}`}>
+                      <div className="font-bold">{advice.seAdv.title}</div>
+                      <div className="text-slate-200 leading-relaxed">{advice.seAdv.msg}</div>
+                    </div>
+
+                    {advice.solAdv && (
+                      <div className="p-4 bg-amber-950/60 border border-amber-700 rounded-xl text-xs sm:text-sm text-amber-200 space-y-1">
+                        <div className="font-bold">{advice.solAdv.title}</div>
+                        <div className="text-slate-200 leading-relaxed">{advice.solAdv.msg}</div>
+                      </div>
+                    )}
+
+                    {advice.wasoAdv && (
+                      <div className="p-4 bg-amber-950/60 border border-amber-700 rounded-xl text-xs sm:text-sm text-amber-200 space-y-1">
+                        <div className="font-bold">{advice.wasoAdv.title}</div>
+                        <div className="text-slate-200 leading-relaxed">{advice.wasoAdv.msg}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* タブ 2: 履歴 & グラフ */}
+          {tab === 'dashboard' && (
+            <div className="space-y-6">
+              
+              {/* 期間切り替え & タイトル */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 glass-panel p-4 sm:p-5 rounded-2xl border border-slate-800">
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-100">睡眠データのトレンド & 分析</h2>
+                  <p className="text-xs sm:text-sm text-slate-300">実睡眠時間・睡眠効率・構成比を視覚的グラフで可視化</p>
+                </div>
+                <div className="flex space-x-1.5 bg-slate-900 p-1.5 rounded-2xl border border-slate-800">
+                  <button onClick={()=>setPeriod(7)} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold ${period===7?'bg-cyan-600 text-white':'text-slate-300'}`}>過去7日</button>
+                  <button onClick={()=>setPeriod(30)} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold ${period===30?'bg-cyan-600 text-white':'text-slate-300'}`}>過去30日</button>
+                  <button onClick={()=>setPeriod(0)} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold ${period===0?'bg-cyan-600 text-white':'text-slate-300'}`}>全期間</button>
+                </div>
+              </div>
+
+              {/* 平均KPIカード */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="glass-card p-4 rounded-2xl border border-slate-800">
+                  <span className="text-xs font-bold text-slate-300 block">平均実睡眠 (TST)</span>
+                  <span className="text-2xl sm:text-3xl font-black text-cyan-300 block mt-1">{formatHM(avgTST)}</span>
+                </div>
+                <div className="glass-card p-4 rounded-2xl border border-slate-800">
+                  <span className="text-xs font-bold text-emerald-400 block">平均睡眠効率 (SE)</span>
+                  <span className="text-2xl sm:text-3xl font-black text-emerald-300 block mt-1">{avgSE}%</span>
+                </div>
+                <div className="glass-card p-4 rounded-2xl border border-slate-800">
+                  <span className="text-xs font-bold text-indigo-400 block">平均入眠 (SOL)</span>
+                  <span className="text-2xl sm:text-3xl font-black text-indigo-300 block mt-1">{avgSOL}分</span>
+                </div>
+                <div className="glass-card p-4 rounded-2xl border border-slate-800">
+                  <span className="text-xs font-bold text-amber-400 block">平均熟睡感</span>
+                  <span className="text-2xl sm:text-3xl font-black text-amber-300 block mt-1">{avgRest} / 5</span>
+                </div>
+              </div>
+
+              {/* グラフ 1: TST vs TIB */}
+              <div className="glass-panel p-4 sm:p-6 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-base font-bold text-slate-100">実睡眠時間 (TST) と 総臥床時間 (TIB) の推移</h3>
+                <div className="h-64 sm:h-80 w-full">
+                  <canvas ref={chartRef1}></canvas>
+                </div>
+              </div>
+
+              {/* グラフ 2: 睡眠効率 (SE %) */}
+              <div className="glass-panel p-4 sm:p-6 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-base font-bold text-slate-100">睡眠効率 (SE %) のトレンド推移（目標 85%）</h3>
+                <div className="h-64 sm:h-72 w-full">
+                  <canvas ref={chartRef2}></canvas>
+                </div>
+              </div>
+
+              {/* グラフ 3: 時間の内訳 (積み上げ棒) */}
+              <div className="glass-panel p-4 sm:p-6 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-base font-bold text-slate-100">寝床での時間の内訳（分）</h3>
+                <div className="h-64 sm:h-72 w-full">
+                  <canvas ref={chartRef3}></canvas>
+                </div>
+              </div>
+
+              {/* 履歴リスト & 一括操作ボタン */}
+              <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                  <h3 className="text-base font-bold text-slate-100">睡眠日誌の履歴ログ ({logs.length}件)</h3>
+                  <div className="flex items-center space-x-2">
+                    <button onClick={handleResetSample} className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold">サンプル再読み込み</button>
+                    <button onClick={handleClearAllLogs} className="px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-bold">全ログ消去</button>
+                  </div>
+                </div>
+
+                {logs.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 space-y-2">
+                    <p className="text-base font-bold">ログはまだありません。</p>
+                    <p className="text-xs">「今日の記録」から睡眠データを登録してください。</p>
+                    <button onClick={handleResetSample} className="px-4 py-2 bg-indigo-900/60 text-indigo-300 rounded-xl text-xs font-bold mt-2">サンプルデータを復元する</button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {logs.map(l => (
+                      <div key={l.id} className="p-4 bg-slate-900 rounded-xl border border-slate-800 space-y-2 relative group">
+                        <div className="flex justify-between items-center">
+                          <span className="font-black text-slate-100 text-base">{l.date} ({l.bedtime}〜{l.wakeTime})</span>
+                          <div className="flex items-center space-x-2">
+                            <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-950 text-emerald-300 border border-emerald-800">
+                              SE {l.sePercent}%
+                            </span>
+                            <button onClick={()=>handleDeleteLog(l.id)} className="px-2.5 py-1 rounded-lg bg-rose-950 text-rose-300 border border-rose-800 text-xs font-bold hover:bg-rose-900">
+                              削除
+                            </button>
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-300 flex justify-between">
+                          <span>実睡眠: <strong className="text-cyan-300 text-sm">{formatHM(l.tstMinutes)}</strong> (TIB: {formatHM(l.tibMinutes)})</span>
+                          <span>熟睡: <strong className="text-amber-300">{l.restfulnessScore}/5</strong></span>
+                        </div>
+                        {l.notes && (
+                          <div className="text-xs text-slate-400 bg-slate-950 p-2.5 rounded-lg border border-slate-850">
+                            📝 {l.notes}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+
+          {/* タブ 3: 睡眠コラム */}
+          {tab === 'columns' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {COLUMNS.map((c, i) => (
+                <div key={i} onClick={()=>setActiveCol(c)} className="glass-card p-5 sm:p-6 rounded-2xl cursor-pointer hover:border-cyan-500/50 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="px-3 py-1 rounded-full bg-indigo-950 text-indigo-300 text-xs font-bold">{c.cat}</span>
+                    <span className="text-xs text-slate-400">約{c.time}分</span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-100">{c.title}</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">{c.summary}</p>
+                </div>
+              ))}
+
+              {activeCol && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+                  <div className="glass-panel p-6 rounded-2xl max-w-lg w-full space-y-4 max-h-[85vh] overflow-y-auto">
+                    <h2 className="text-lg sm:text-xl font-bold text-slate-100">{activeCol.title}</h2>
+                    <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{activeCol.body}</p>
+                    <button onClick={()=>setActiveCol(null)} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-xl text-sm font-bold">閉じる</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
